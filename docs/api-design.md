@@ -80,6 +80,38 @@ Errors:
 - 400 MAX_IMAGES_EXCEEDED (if more than 8 images)
 - 400 DEFAULT_LOCATION_MISSING (if use_default_location=true but user default location is not set)
 
+### PATCH /items/:id (Bearer, SELLER/ADMIN)
+Content-Type: application/json
+
+Notes:
+- SELLER hanya bisa edit item miliknya sendiri
+- ADMIN bisa edit item siapa pun
+- Update bersifat partial (field yang tidak dikirim tidak berubah)
+
+Body (semua optional):
+- title (string)
+- price (number | null)
+- category (string | null)
+- location (string | null)
+- description (string | null)
+- use_default_location (boolean)
+- latitude (number)
+- longitude (number)
+
+Behavior:
+- Jika use_default_location=true: location/latitude/longitude akan di-copy dari user (users.address, users.latitude, users.longitude)
+- Jika tidak: hasil akhir latitude/longitude wajib valid
+
+Success response (200):
+- { id }
+
+### DELETE /items/:id (Bearer, SELLER/ADMIN)
+Behavior:
+- Soft delete: set items.status = INACTIVE dan hapus rows item_images
+
+Success response (200):
+- { deleted: true, id }
+
 ## Unlock Contact
 
 ### POST /items/:id/unlock (Bearer)

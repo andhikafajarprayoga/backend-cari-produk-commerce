@@ -129,6 +129,8 @@ module.exports = {
   searchItems,
   getItemById,
   createItem,
+  updateItem,
+  deleteItem,
   unlockContact
 };
 
@@ -218,5 +220,150 @@ async function createItem({ userId, data, imageUrls }) {
     }
 
     return { ok: true, itemId };
+  });
+}
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function parseNullableNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : NaN;
+}
+
+function isValidLat(v) {
+  return typeof v === 'number' && Number.isFinite(v) && v >= -90 && v <= 90;
+}
+
+function isValidLng(v) {
+  return typeof v === 'number' && Number.isFinite(v) && v >= -180 && v <= 180;
+}
+
+function parseBooleanStrict(raw) {
+  if (raw === true || raw === 1) return true;
+  if (raw === false || raw === 0) return false;
+
+  const s = String(raw || '').toLowerCase();
+  if (s === 'true' || s === '1') return true;
+  if (s === 'false' || s === '0') return false;
+
+  return null;
+}
+
+async function updateItem({ actorId, actorRole, itemId, data }) {
+  const numericItemId = Number(itemId);
+  if (!Number.isFinite(numericItemId) || numericItemId <= 0) {
+    return { ok: false, status: 400, error: 'VALIDATION_ERROR', message: 'Invalid item id' };
+  }
+
+  const payload = data && typeof data === 'object' ? data : {};
+
+  return withTransaction(async (conn) => {
+    const [itemRows] = await conn.execute(
+      'SELECT id, user_id, title, description, price, category, location, latitude, longitude, status FROM items WHERE id = ? LIMIT 1 FOR UPDATE',
+      [numericItemId]
+    );
+
+    const item = itemRows[0];
+    if (!item) {
+      return { ok: false, status: 404, error: 'ITEM_NOT_FOUND', message: 'Item not found' };
+    }
+
+    if (actorRole !== 'ADMIN' && Number(item.user_id) !== Number(actorId)) {
+      return { ok: false, status: 403, error: 'FORBIDDEN', message: 'You can only edit your own items' };
+    }
+
+    const nextTitle = hasOwn(payload, 'title') ? String(payload.title || '').trim() : item.title;
+    if (!nextTitle) {
+      return { ok: false, status: 400, error: 'VALIDATION_ERROR', message: 'title cannot be empty' };
+    }
+
+    const nextDescription = hasOwn(payload, 'description') ? (payload.description || null) : item.description;
+    const nextCategory = hasOwn(payload, 'category') ? (payload.category || null) : item.category;
+
+    let nextPrice = item.price;
+    if (hasOwn(payload, 'price')) {
+      const parsed = parseNullableNumber(payload.price);
+      if (Number.isNaN(parsed)) {
+        return { ok: false, status: 400, error: 'VALIDATION_ERROR', message: 'price must be a number' };
+      }
+      nextPrice = parsed;
+    }
+
+    let nextLocation = hasOwn(payload, 'location') ? (payload.location || null) : item.location;
+
+    const currentLat = item.latitude != null ? Number(item.latitude) : null;
+    const currentLng = item.longitude != null ? Number(item.longitude) : null;
+
+    let nextLat = hasOwn(payload, 'latitude') ? parseNullableNumber(payload.latitude) : currentLat;
+    let nextLng = hasOwn(payload, 'longitude') ? parseNullableNumber(payload.longitude) : currentLng;
+
+    if (Number.isNaN(nextLat) || Number.isNaN(nextLng)) {
+      return { ok: false, status: 400, error: 'VALIDATION_ERROR', message: 'latitude/longitude must be numbers' };
+    }
+
+    if (hasOwn(payload, 'use_default_location')) {
+      const useDefault = parseBooleanStrict(payload.use_default_location);
+      if (useDefault === null) {
+        return { ok: false, status: 400, error: 'VALIDATION_ERROR', message: 'use_default_location must be boolean' };
+      }
+
+      if (useDefault) {
+        const [userRows] = await conn.execute(
+          'SELECT address, latitude, longitude FROM users WHERE id = ? LIMIT 1',
+          [actorId]
+        );
+
+        const u = userRows[0];
+        if (!u || !u.address || u.latitude == null || u.longitude == null) {
+          return { ok: false, status: 400, error: 'DEFAULT_LOCATION_MISSING', message: 'User default location is not set' };
+        }
+
+        nextLocation = u.address;
+        nextLat = Number(u.latitude);
+        nextLng = Number(u.longitude);
+      }
+    }
+
+    if (!isValidLat(nextLat) || !isValidLng(nextLng)) {
+      return { ok: false, status: 400, error: 'VALIDATION_ERROR', message: 'latitude (-90..90) and longitude (-180..180) are required' };
+    }
+
+    await conn.execute(
+      'UPDATE items SET title = ?, description = ?, price = ?, category = ?, location = ?, latitude = ?, longitude = ? WHERE id = ?',
+      [nextTitle, nextDescription, nextPrice, nextCategory, nextLocation, nextLat, nextLng, numericItemId]
+    );
+
+    return { ok: true, itemId: numericItemId, status: item.status };
+  });
+}
+
+async function deleteItem({ actorId, actorRole, itemId }) {
+  const numericItemId = Number(itemId);
+  if (!Number.isFinite(numericItemId) || numericItemId <= 0) {
+    return { ok: false, status: 400, error: 'VALIDATION_ERROR', message: 'Invalid item id' };
+  }
+
+  return withTransaction(async (conn) => {
+    const [itemRows] = await conn.execute(
+      'SELECT id, user_id, status FROM items WHERE id = ? LIMIT 1 FOR UPDATE',
+      [numericItemId]
+    );
+
+    const item = itemRows[0];
+    if (!item) {
+      return { ok: false, status: 404, error: 'ITEM_NOT_FOUND', message: 'Item not found' };
+    }
+
+    if (actorRole !== 'ADMIN' && Number(item.user_id) !== Number(actorId)) {
+      return { ok: false, status: 403, error: 'FORBIDDEN', message: 'You can only delete your own items' };
+    }
+
+    await conn.execute("UPDATE items SET status = 'INACTIVE' WHERE id = ?", [numericItemId]);
+    await conn.execute('DELETE FROM item_images WHERE item_id = ?', [numericItemId]);
+
+    return { ok: true, itemId: numericItemId };
   });
 }

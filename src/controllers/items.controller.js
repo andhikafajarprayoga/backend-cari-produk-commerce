@@ -70,4 +70,46 @@ async function create(req, res) {
   });
 }
 
-module.exports = { list, detail, unlock, create };
+async function update(req, res) {
+  const itemId = Number(req.params.id);
+  const result = await itemsService.updateItem({
+    actorId: req.user.id,
+    actorRole: req.user.role,
+    itemId,
+    data: req.body
+  });
+
+  if (!result.ok) {
+    return res.status(result.status).json({
+      error: result.error,
+      message: result.message
+    });
+  }
+
+  return res.json({
+    id: result.itemId
+  });
+}
+
+async function remove(req, res) {
+  const itemId = Number(req.params.id);
+  const result = await itemsService.deleteItem({
+    actorId: req.user.id,
+    actorRole: req.user.role,
+    itemId
+  });
+
+  if (!result.ok) {
+    return res.status(result.status).json({
+      error: result.error,
+      message: result.message
+    });
+  }
+
+  return res.json({
+    deleted: true,
+    id: result.itemId
+  });
+}
+
+module.exports = { list, detail, unlock, create, update, remove };
