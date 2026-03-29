@@ -107,7 +107,7 @@ Success response (200):
 
 ### DELETE /items/:id (Bearer, SELLER/ADMIN)
 Behavior:
-- Soft delete: set items.status = INACTIVE dan hapus rows item_images
+- Hard delete: hapus row items (related rows ikut terhapus via FK cascade)
 
 Success response (200):
 - { deleted: true, id }

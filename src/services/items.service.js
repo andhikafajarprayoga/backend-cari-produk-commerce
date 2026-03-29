@@ -361,8 +361,8 @@ async function deleteItem({ actorId, actorRole, itemId }) {
       return { ok: false, status: 403, error: 'FORBIDDEN', message: 'You can only delete your own items' };
     }
 
-    await conn.execute("UPDATE items SET status = 'INACTIVE' WHERE id = ?", [numericItemId]);
-    await conn.execute('DELETE FROM item_images WHERE item_id = ?', [numericItemId]);
+    // Hard delete. Related rows (images, unlocks, premium_ads) are removed via FK cascades.
+    await conn.execute('DELETE FROM items WHERE id = ?', [numericItemId]);
 
     return { ok: true, itemId: numericItemId };
   });
