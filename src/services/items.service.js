@@ -156,6 +156,18 @@ async function createItem({ userId, data, imageUrls }) {
   const isValidLng = (v) => typeof v === 'number' && Number.isFinite(v) && v >= -180 && v <= 180;
 
   return withTransaction(async (conn) => {
+    const [userContactRows] = await conn.execute(
+      'SELECT phone FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+
+    const contactUser = userContactRows[0];
+    if (!contactUser) {
+      return { ok: false, status: 401, error: 'UNAUTHORIZED', message: 'User not found' };
+    }
+
+    const userPhone = contactUser.phone || null;
+
     let finalLocation = data.location || null;
     let finalLat = lat;
     let finalLng = lng;
@@ -181,7 +193,7 @@ async function createItem({ userId, data, imageUrls }) {
     }
 
     const [result] = await conn.execute(
-      'INSERT INTO items (user_id, title, description, price, category, location, latitude, longitude, contact_phone, contact_whatsapp, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, \'ACTIVE\')',
+      'INSERT INTO items (user_id, title, description, price, category, location, latitude, longitude, contact_phone, contact_whatsapp, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'ACTIVE\')',
       [
         userId,
         title,
@@ -190,7 +202,9 @@ async function createItem({ userId, data, imageUrls }) {
         data.category || null,
         finalLocation,
         finalLat,
-        finalLng
+        finalLng,
+        userPhone,
+        userPhone
       ]
     );
 
